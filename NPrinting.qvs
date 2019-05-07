@@ -1,0 +1,1686 @@
+/*  Setup
+
+      Info how to setup Rest Connectors
+//  NPrinting REST Login (GET)
+    ---------------------------
+    
+    REQUEST:
+    URL:                                            https://NPrintingHostName:4993/api/v1/login/ntlm
+    Timeout:                                        30
+    Method:                                         Get
+
+    DATA OPTIONS:
+    Auto detect response type:                      Checked
+    Check response type during 'Test connection:    Checked
+
+    Key generation strategy:                        Sequence ID
+
+    AUTHENTICATION:
+    Authentication Schema:                          Windows NTLM
+    UserName:                                       Provide Admin User 
+    Password:                                       Provide Admin User Password
+    Skip server certificate validation:             Checked
+    Use certificate:                                No
+    Trusted Locations                               Leave blank
+    
+    ADDITIONAL REQUEST PARAMETERS                   Leave blank
+
+    PAGINATION
+    Pagination type:                                None
+
+    SECURITY
+    Allow response headers:                         Checked
+    Allow HHTPS only:                               UnChecked  
+    Redirect URL WITELIST                           Leave blank 
+
+    Name:                                           NPrinting REST Login (GET)  - for simplicity amend name in Qlik Sense QMC so it matches variable names in connection variables            
+
+//  NPrinting REST Login (POST)
+    ---------------------------
+    
+    REQUEST:
+    URL:                                            https://NPrintingHostName:4993/api/v1/login/ntlm
+    Timeout:                                        30
+    Method:                                         Post
+    Request Body                                    Leave blank
+    Add 'Expect: 100-continue' header               Checked
+
+    DATA OPTIONS:
+    Auto detect response type:                      Checked
+    Check response type during 'Test connection:    Checked
+
+    Key generation strategy:                        Sequence ID
+
+    AUTHENTICATION:
+    Authentication Schema:                          Windows NTLM
+    UserName:                                       Provide Admin User 
+    Password:                                       Provide Admin User Password
+    Skip server certificate validation:             Checked
+    Use certificate:                                No
+    Trusted Locations                               Leave blank
+    
+    ADDITIONAL REQUEST PARAMETERS
+    Query parameters                                Leave blank  
+    Query headers:
+    Name:                                           Origin
+    Value:                                          'https://your trusted qliksense origin declared in NPrinting'
+
+    PAGINATION
+    Pagination type:                                None
+
+    SECURITY
+    Allow response headers:                         Checked
+    Allow HHTPS only:                               UnChecked  
+    Redirect URL WITELIST                           Leave blank 
+
+    Name:                                           NPrinting REST Login (POST)  - for simplicity amend name in Qlik Sense QMC so it matches variable names in connection variables     
+
+    */
+//    
+//  SETTINGS
+    //  Connection variables
+        //  GET
+            Let vConnection_GET                     =   'NPrinting REST Login (GET)';
+
+        //  PUT
+            Let vConnection_POST                    =   'NPrinting REST Login (POST)';  
+
+        //  XLS
+            Let vConnection_XLS                     =   '$(vConnection)\XLS';    
+            
+    //	Set variables to select User, APP, Connection, Report & Task
+
+            Let vQlikSenseServer                    =   'https://qliksense.networkten.com.au';
+            
+            Let vNPrintingServer                    =   'NPTEN01';                          //  NPrinitng host name
+            Let vNPrintingAdmin		                =   'NPrint Admin';                                 //  
+            Let vNPrintingAppName			        =   'Testing';                          //  We are assuming that only one NPrinting App reports will run
+            
+            Let vNPrintingConnectionName	        =   '';                                 //  This can be overwritten in Subroutine. This is list of comma separated values wrapped in '' quotes, empty = ALL 
+            Let vNPrintingTaskName			        =   '';                                 //  This can be overwritten in Subroutine. This is list of comma separated values wrapped in '' quotes, empty = ALL  
+
+    //  Compose static URL's 
+
+            Let vURL_Apps                           =   'https://$(vNPrintingServer):4993/api/v1/apps';
+            Let vURL_Connections                    =   'https://$(vNPrintingServer):4993/api/v1/connections';
+            Let vURL_Filters                        =   'https://$(vNPrintingServer):4993/api/v1/filters';
+            Let vURL_Group                          =   'https://$(vNPrintingServer):4993/api/v1/groups';
+            Let vURL_Role                           =   'https://$(vNPrintingServer):4993/api/v1/roles';
+            Let vURL_Tasks                          =   'https://$(vNPrintingServer):4993/api/v1/tasks';
+            Let vURL_User                           =   'https://$(vNPrintingServer):4993/api/v1/users';
+//
+//  ------------------------------------------------------------------------------------------------------------------------------------------------
+//                              TASKS
+//  ------------------------------------------------------------------------------------------------------------------------------------------------
+//
+//	AUTHENTICATE
+
+    SUB NP_Authenticate
+
+    //	Connect to NPrinting using the GET REST Connection
+
+			LIB CONNECT TO '$(vConnection_GET)';
+
+    //	Perform a GET call to NPrinting NTLM login API
+
+            RestConnectorMasterTable:
+            SQL SELECT
+              	"Set-Cookie",
+              	"__KEY__response_header"
+            FROM 
+                JSON "_response_header" PK "__KEY__response_header"
+            ;
+
+            cookie_items:
+            LOAD 
+                [Set-Cookie] AS [Set-Cookie]
+            RESIDENT 
+                RestConnectorMasterTable
+            WHERE 
+                NOT IsNull([__KEY__response_header])
+            ;
+
+    //	Extracts session cookie from the API response
+
+            Let vCookieRaw 	= Peek('Set-Cookie',0,'cookie_items');
+            Let vCookie 	= TextBetween('$(vCookieRaw)','Secure,','Path=/',2);
+
+            DROP TABLE RestConnectorMasterTable;
+
+    //	Trace
+
+			Trace 	---;
+            Trace 	Raw Session Cookie: "$(vCookieRaw)";
+            Trace 	Truncated Session Cookie: "$(vCookie)";
+
+    ENDSUB    
+
+//	USERS
+//      GET USERS 
+		
+        SUB NP_GetUsers
+
+            LIB CONNECT TO '$(vConnection_GET)';
+
+            RestUserMasterTable:
+            SQL SELECT
+            "__KEY_data",
+            (SELECT
+                "id",
+                "email",
+                "domainAccount",
+                "subFolder",
+                "folder",
+                "created",
+                "timezone",
+                "lastUpdate",
+                "userName",
+                "locale",
+                "enabled",
+                "__FK_items"
+                FROM 
+                    "items" FK "__FK_items")
+            FROM 
+                JSON (wrap off) "data" PK "__KEY_data"
+            WITH 
+                CONNECTION( URL "$(vURL_User)", HTTPHEADER "cookie" "$(vCookie)" )
+            ;
+
+            users_items:
+            LOAD 
+                id                  AS users_userId, 
+                email               AS users_userEmail,
+                domainAccount       AS users_domainAccount,    
+                subFolder           AS users_subFolder,        
+                folder              AS users_folder,
+                created             AS users_created,
+                timezone            AS users_timezone,
+                lastUpdate          AS users_lastUpdate,      
+                userName            AS users_userName,
+                locale              AS users_locale,      
+                enabled             AS users_enabled
+            RESIDENT 
+                RestUserMasterTable
+            WHERE 
+                NOT IsNull([__FK_items])
+            ;
+            
+            DROP TABLE RestUserMasterTable;
+
+        ENDSUB
+
+//      GET USERS FROM XLS
+
+        SUB XLS_GetUsers
+            
+            XLS_Users:
+            LOAD
+                RowNo()-1                                                       as XLS_User_RowId,
+                [E-mail]                                                        as XLS_User_Email,
+                Username                                                        as XLS_User_Name,
+                Password                                                        as XLS_User_Password,
+                [Domain Account]                                                as XLS_User_DomainAccount,
+                If(Enabled like 'yes' or Enabled like 'true',true(),false())    as XLS_User_IsEnabled,
+                [Time Zone]                                                     as XLS_User_TimeZone,
+                Locale                                                          as XLS_User_Locale,
+                Nickname                                                        as XLS_User_NickName,
+                Title                                                           as XLS_User_Title,
+                Company                                                         as XLS_User_Company,
+                [Job Title]                                                     as XLS_User_JobTitle,
+                Department                                                      as XLS_User_Department,
+                Office                                                          as XLS_User_Office,
+                Filters                                                         as XLS_User_Filters,
+                Groups                                                          as XLS_User_Groups,
+                Roles                                                           as XLS_User_Roles,
+                Folder                                                          as XLS_User_Folder,
+                SubFolder                                                       as XLS_User_SubFolder
+            FROM 
+                $(vConnection_XLS)\Recipients.xlsx
+                (ooxml, embedded labels, table is Users)
+            Where
+                Username <> '$(vNPrintingAdmin)'
+            ;
+
+        ENDSUB
+
+//      CREATE USERS FROM XLS   - This procedure creates all users from XLS                         (except ADMIN - admin defined as a variable(s))
+
+        SUB NP_CreateUpdateUsers(vCreateNewUsers)
+
+            IF '$(vCreateNewUsers)' = 'Yes' then
+
+                Call XLS_GetUsers
+
+                FOR Each  vUserRowId in FieldValueList('XLS_User_RowId'); 
+            
+                //  create user
+
+                    LIB CONNECT TO '$(vConnection_POST)';
+
+                //  setup user attributes
+
+                    Let vUsername       = CHR(34) & Peek('XLS_User_Name'            ,$(vUserRowId),'XLS_Users') & CHR(34);
+                    Let vEmail          = CHR(34) & Peek('XLS_User_Email'           ,$(vUserRowId),'XLS_Users') & CHR(34);
+                    Let vPassword       = CHR(34) & Peek('XLS_User_Password'        ,$(vUserRowId),'XLS_Users') & CHR(34);
+                    Let vEnabled        = CHR(34) & Peek('XLS_User_IsEnabled'       ,$(vUserRowId),'XLS_Users') & CHR(34);
+                    Let vFolder         = CHR(34) & Peek('XLS_User_Folder'          ,$(vUserRowId),'XLS_Users') & CHR(34);
+                    Let vSubfolder      = CHR(34) & Peek('XLS_User_SubFolder'       ,$(vUserRowId),'XLS_Users') & CHR(34);
+                    Let vDomainAccount  = Replace(CHR(34) & Peek('XLS_User_DomainAccount'   ,$(vUserRowId),'XLS_Users') & CHR(34),'\','\\');
+                    Let vTimezone       = CHR(34) & Peek('XLS_User_TimeZone'        ,$(vUserRowId),'XLS_Users') & CHR(34);
+                    Let vLocale         = CHR(34) & Peek('XLS_User_Locale'          ,$(vUserRowId),'XLS_Users') & CHR(34);
+
+                //  create json BODY
+
+                    set vUserBody = '{"Username":$(vUsername),"Email":$(vEmail),"Password":$(vPassword),"Enabled":$(vEnabled),"Folder":$(vFolder),"subFolder":$(vSubfolder),"domainAccount":$(vDomainAccount),"timezone":$(vTimezone),"Locale":$(vLocale)}';
+                    Trace $(vUserBody);
+                    let vUserBody = replace(vUserBody,'"', chr(34)&chr(34));
+
+                //  trigger request 
+
+                    RestNPPOSTandPUTTestTable:
+                    SQL SELECT
+                        "__KEY_data"
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vURL_User)", BODY "$(vUserBody)",
+                        HTTPHEADER "Origin" "$(vQlikSenseServer)",
+                        HTTPHEADER "Content-Type" "application/json",
+                        HTTPHEADER "cookie" "$(vCookie)")
+                    ;
+                    
+                    DROP TABLE RestNPPOSTandPUTTestTable;
+                
+                NEXT
+
+                Drop Table XLS_Users;
+
+            ENDIF
+
+        ENDSUB    
+
+//      DELETE USERS            - This procedure removes all users                                  (except ADMIN - admin defined as a variable(s))
+
+        SUB NP_DeleteAllUsers(vDeleteUsers)
+
+            IF  '$(vDeleteUsers)' = 'Yes' 
+
+                Call NP_GetUsers
+
+                DeleteUserList:
+                Load Distinct
+                    users_userId as user_to_delete
+                Resident
+                    users_items
+                Where
+                    users_userName <> '$(vNPrintingAdmin)'
+                ;
+
+                FOR Each  vUserId in FieldValueList('user_to_delete');  
+
+                    Let vDeleteUserURL      = 'https://$(vNPrintingServer):4993/api/v1/users/'&'$(vUserId)';                         
+                    Trace Deleting user: $(vDeleteUserURL);
+                    
+                    LIB CONNECT TO '$(vConnection_POST)';
+                    
+                    RestDeleteUserTable:
+                    SQL SELECT
+                        "__KEY_data"
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vDeleteUserURL)",
+                        HTTPHEADER "Content-Type" "application/json",  
+                        HTTPHEADER "X-HTTP-Method-Override" "DELETE",                    
+                        HTTPHEADER "cookie" "$(vCookie)")
+                    ;
+
+                NEXT
+
+                Drop Tables
+                    RestDeleteUserTable,
+                    DeleteUserList, 
+                    users_items
+                ;
+            
+            ENDIF
+
+        ENDSUB
+
+//      ASSIGN USERS FILTERS    - This procedure updates (allocates & removes) all user filters     (except ADMIN - admin defined as a variable(s))
+
+        SUB NP_AssignFiltersToUsers
+
+            //  Get exiting Filters
+                    Call NP_GetFilters
+                    Trace *** Retrieved Filters;
+            //  Get existing Users
+                    Call NP_GetUsers
+                    Trace *** Retrieved Users from NPrinting;
+            //  Get user/filter allocation
+                    Call XLS_GetUsers
+                    Trace *** Retrieved Users from Excel File;
+            
+            //  Load users & filters from XLS
+
+                    UserFilterListTemp:
+                    Load  distinct
+                        XLS_User_Name                        as UserFilter_User,
+                        Trim(SubField(XLS_User_Filters,',')) as UserFilter_Filter
+                    Resident
+                        XLS_Users   
+                    ;
+
+            //  Join user ID's from NPrinting repository 
+
+                    Inner Join (UserFilterListTemp)
+                    Load 
+                        users_userName                      as UserFilter_User,
+                        users_userId                        as UserFilter_UserId
+                    Resident
+                        users_items
+                    ;
+
+            //  Join filter ID's from NPrinting repository 
+
+                    Left Join (UserFilterListTemp)
+                    Load 
+                        filters_name                        as UserFilter_Filter,
+                        filters_id                          as UserFilter_FilterId
+                    Resident
+                        filters_items
+                    ;
+            
+            //  Create array of filter ID's to allocate
+
+                    UserFilterList: 
+                    Load
+                        RowNo()-1                                           as UserFilter_RowId,
+                        UserFilter_UserId,
+                        If(UserFilter_FilterId='""','',UserFilter_FilterId) as UserFilter_FilterId
+                    ;
+                    Load Distinct
+                        UserFilter_UserId,
+                        Concat(CHR(34)&UserFilter_FilterId&Chr(34),',')     as UserFilter_FilterId
+                    Resident
+                        UserFilterListTemp
+                    Group by
+                        UserFilter_UserId
+                    ;
+
+                    Drop Table UserFilterListTemp;
+
+            //  Loop through list of users and update their filters
+
+                FOR Each  vUserFilterRowId in FieldValueList('UserFilter_RowId') 
+
+                    Trace vUserFilterRowId: $(vUserFilterRowId);    
+                    Let vUpdateUserFilterId         =   Lookup('UserFilter_FilterId','UserFilter_RowId',$(vUserFilterRowId),'UserFilterList');
+                    Let vUserId                     =   Lookup('UserFilter_UserId','UserFilter_RowId',$(vUserFilterRowId),'UserFilterList');
+                    Trace FilterId: $(vUpdateUserFilterId) for UserId: $(vUserId);
+
+                    Let vUpdateUserFilterURL        =   'https://$(vNPrintingServer):4993/api/v1/users/'&'$(vUserId)'&'/filters';    
+                    Set vUpdateUserFilterBody       =   '[$(vUpdateUserFilterId)]';
+                    Let vUpdateUserFilterBody       =   Replace(vUpdateUserFilterBody,'"', chr(34)&chr(34));  
+                                
+                    LIB CONNECT TO '$(vConnection_POST)';
+                    Trace connecting to POST Connection;
+
+                    RestUpdateUserFilterTable:
+                    SQL SELECT
+                        "__KEY_data"
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vUpdateUserFilterURL)", BODY "$(vUpdateUserFilterBody)",
+                        HTTPHEADER "Origin" "$(vQlikSenseServer)",
+                        HTTPHEADER "Content-Type" "application/json",  
+                        HTTPHEADER "X-HTTP-Method-Override" "PUT",                    
+                        HTTPHEADER "cookie" "$(vCookie)")
+                    ;
+                
+                    Drop Table RestUpdateUserFilterTable;
+
+                NEXT
+
+        ENDSUB
+    
+//      ASSIGN USERS GROUPS     - This procedure updates (allocates & removes) all user groups      (except ADMIN - admin defined as a variable(s))
+
+        SUB NP_AssignGroupsToUsers
+
+            //  Get exiting Groups
+                    Call NP_GetGroups
+                    Trace *** Retrieved Groups;
+            //  Get existing Users
+                    Call NP_GetUsers
+                    Trace *** Retrieved Users from NPrinting;
+            //  Get user/group allocation
+                    Call XLS_GetUsers
+                    Trace *** Retrieved Users from Excel File;
+            
+            //  Load users & groups from XLS
+
+                    UserGroupListTemp:
+                    Load  distinct
+                        XLS_User_Name                       as UserGroup_User,
+                        Trim(SubField(XLS_User_Groups,',')) as UserGroup_Group
+                    Resident
+                        XLS_Users   
+                    ;
+
+            //  Join user ID's from NPrinting repository 
+
+                    Inner Join (UserGroupListTemp)
+                    Load 
+                        users_userName                      as UserGroup_User,
+                        users_userId                        as UserGroup_UserId
+                    Resident
+                        users_items
+                    ;
+
+            //  Join groups ID's from NPrinting repository 
+
+                    Left Join (UserGroupListTemp)
+                    Load 
+                        groups_name                         as UserGroup_Group,
+                        groups_id                           as UserGroup_GroupId
+                    Resident
+                        groups_items
+                    ;
+            
+            //  Create array of groups ID's to allocate
+
+                    UserGroupList:
+                    Load
+                        RowNo()-1                                           as UserGroup_RowId,
+                        UserGroup_UserId,
+                        If(UserGroup_GroupId='""','',UserGroup_GroupId)     as UserGroup_GroupId
+                    ;
+                    Load Distinct
+                        UserGroup_UserId,
+                        Concat(CHR(34)&UserGroup_GroupId&Chr(34),',')       as UserGroup_GroupId
+                    Resident
+                        UserGroupListTemp
+                    Group by
+                        UserGroup_UserId
+                    ;
+
+                    Drop Table UserGroupListTemp;
+                    
+            //  Loop through list of users and update their groups
+
+                FOR Each  vUserGroupRowId in FieldValueList('UserGroup_RowId') 
+
+                    Trace vUserGroupRowId: $(vUserGroupRowId);    
+                    Let vUpdateUserGroupId         =   Lookup('UserGroup_GroupId','UserGroup_RowId',$(vUserGroupRowId),'UserGroupList');
+                    Let vUserId                    =   Lookup('UserGroup_UserId','UserGroup_RowId',$(vUserGroupRowId),'UserGroupList');
+                    Trace GroupId: $(vUpdateUserGroupId) for UserId: $(vUserId);
+                    Let vUpdateUserGroupURL        =   'https://$(vNPrintingServer):4993/api/v1/users/'&'$(vUserId)'&'/groups';    
+                    Set vUpdateUserGroupBody       =   '[$(vUpdateUserGroupId)]';
+                    Let vUpdateUserGroupBody       =   Replace(vUpdateUserGroupBody,'"', chr(34)&chr(34));  
+                                
+                    LIB CONNECT TO '$(vConnection_POST)';
+                    Trace connecting to POST Connection;
+
+                    RestUpdateUserGroupTable:
+                    SQL SELECT
+                        "__KEY_data"
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vUpdateUserGroupURL)", BODY "$(vUpdateUserGroupBody)",
+                        HTTPHEADER "Origin" "$(vQlikSenseServer)",
+                        HTTPHEADER "Content-Type" "application/json",  
+                        HTTPHEADER "X-HTTP-Method-Override" "PUT",                    
+                        HTTPHEADER "cookie" "$(vCookie)")
+                    ;
+
+                    Drop Table RestUpdateUserGroupTable;
+                
+                NEXT
+
+        ENDSUB
+    
+//      ASSIGN USERS ROLES      - This procedure updates (allocates & removes) all user roles       (except ADMIN - admin defined as a variable(s))
+
+        SUB NP_AssignRolesToUsers
+
+            //  Get exiting Roles
+                    Call NP_GetRoles
+                    Trace *** Retrieved Roles;
+            //  Get existing Users
+                    Call NP_GetUsers
+                    Trace *** Retrieved Users from NPrinting;
+            //  Get user/group allocation
+                    Call XLS_GetUsers
+                    Trace *** Retrieved Users from Excel File;
+            
+            //  Load users & roles from XLS
+
+                    UserRoleListTemp:
+                    Load  distinct
+                        XLS_User_Name                       as UserRole_User,
+                        Trim(SubField(XLS_User_Roles,','))  as UserRole_Role
+                    Resident
+                        XLS_Users   
+                    ;
+
+            //  Join user ID's from NPrinting repository 
+
+                    Inner Join (UserRoleListTemp)
+                    Load 
+                        users_userName                      as UserRole_User,
+                        users_userId                        as UserRole_UserId
+                    Resident
+                        users_items
+                    ;
+
+            //  Join groups ID's from NPrinting repository 
+
+                    Left Join (UserRoleListTemp)
+                    Load 
+                        roles_name                          as UserRole_Role,
+                        roles_id                            as UserRole_RoleId
+                    Resident
+                        roles_items
+                    ;
+            
+            //  Create array of groups ID's to allocate
+
+                    UserRoleList:
+                    Load
+                        RowNo()-1                                           as UserRole_RowId,
+                        UserRole_UserId,
+                        If(UserRole_RoleId='""','',UserRole_RoleId)         as UserRole_RoleId
+                    ;
+                    Load Distinct
+                        UserRole_UserId,
+                        Concat(CHR(34)&UserRole_RoleId&Chr(34),',')         as UserRole_RoleId
+                    Resident
+                        UserRoleListTemp
+                    Group by
+                        UserRole_UserId
+                    ;
+
+                    Drop Table UserRoleListTemp;
+                    
+            //  Loop through list of users and update their groups
+
+                FOR Each  vUserRoleRowId in FieldValueList('UserRole_RowId') 
+
+                    Trace vUserRoleRowId: $(vUserRoleRowId);    
+                    Let vUpdateUserRoleId         =   Lookup('UserRole_RoleId','UserRole_RowId',$(vUserRoleRowId),'UserRoleList');
+                    Let vUserId                    =   Lookup('UserRole_UserId','UserRole_RowId',$(vUserRoleRowId),'UserRoleList');
+                    Trace RoleId: $(vUpdateUserRoleId) for UserId: $(vUserId);
+                    Let vUpdateUserRoleURL        =   'https://$(vNPrintingServer):4993/api/v1/users/'&'$(vUserId)'&'/roles';    
+                    Set vUpdateUserRoleBody       =   '[$(vUpdateUserRoleId)]';
+                    Let vUpdateUserRoleBody       =   Replace(vUpdateUserRoleBody,'"', chr(34)&chr(34));  
+                                
+                    LIB CONNECT TO '$(vConnection_POST)';
+                    Trace connecting to POST Connection;
+
+                    RestUpdateUserRoleTable:
+                    SQL SELECT
+                        "__KEY_data"
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vUpdateUserRoleURL)", BODY "$(vUpdateUserRoleBody)",
+                        HTTPHEADER "Origin" "$(vQlikSenseServer)",
+                        HTTPHEADER "Content-Type" "application/json",  
+                        HTTPHEADER "X-HTTP-Method-Override" "PUT",                    
+                        HTTPHEADER "cookie" "$(vCookie)")
+                    ;
+
+                    Drop Table RestUpdateUserRoleTable;
+                
+                NEXT
+
+        ENDSUB
+    
+
+//	GROUPS
+//      GET GROUPS
+
+        SUB NP_GetGroups
+
+            LIB CONNECT TO '$(vConnection_GET)';
+
+            RestGroupMasterTable:
+            SQL SELECT
+            "__KEY_data",
+            (SELECT
+                "id",
+                "name",
+                "description",
+                "enabled",
+                "created",
+                "lastUpdate",
+                "__FK_items"
+                FROM 
+                    "items" FK "__FK_items")
+            FROM 
+                JSON (wrap off) "data" PK "__KEY_data"
+            WITH 
+                CONNECTION( URL "$(vURL_Group)", HTTPHEADER "cookie" "$(vCookie)" )
+            ;
+
+            groups_items:
+            LOAD 
+                id                      AS groups_id, 
+                name                    AS groups_name,
+                description             AS groups_descripton,    
+                enabled                 AS groups_enabled,        
+                created                 AS groups_created,
+                lastUpdate              AS groups_lastUpdate
+            RESIDENT 
+                RestGroupMasterTable
+            WHERE 
+                NOT IsNull([__FK_items])
+            ;
+            
+            DROP TABLE RestGroupMasterTable;
+
+        ENDSUB
+
+//      GET GROUPS FROM XLS
+
+        SUB XLS_GetGroups
+
+            XLS_Groups:
+            Load
+                Name                    as XLS_groups_name,
+                Description             as XLS_groups_descripton
+            FROM 
+                $(vConnection_XLS)\Recipients.xlsx
+                (ooxml, embedded labels, table is Groups)
+            ;
+
+        ENDSUB
+
+//      CREATE GROUPS FROM XLS
+        
+        SUB NP_CreateGroups
+            //  Get existing groups
+            Call NP_GetGroups
+            //  Get groups from XLS
+            Call XLS_GetGroups
+
+            //  Check if group exists
+
+            XLS_GroupList:
+            Load
+                RowNo()-1               as create_group_RowId,
+                XLS_groups_name         as create_groups_name,
+                XLS_groups_descripton   as create_groups_descripton,
+                True()                  as create_groups_enabled
+            Resident
+                XLS_Groups
+            Where
+                Not Exists(groups_name,XLS_groups_name)
+            ;
+
+            // Loop and create groups
+
+                FOR Each  vCreateGroupRowId in FieldValueList('create_group_RowId'); 
+            
+                    TRACE *** CREATING GROUPS ***;
+
+                //  create user
+
+                    LIB CONNECT TO '$(vConnection_POST)';
+
+                //  setup user attributes
+
+                    Let vGroup_name         = CHR(34) & Peek('create_groups_name'       ,$(vCreateGroupRowId),'XLS_GroupList') & CHR(34);
+                    Let vGroup_description  = CHR(34) & Peek('create_groups_descripton' ,$(vCreateGroupRowId),'XLS_GroupList') & CHR(34);
+                    Let vGroup_enabled      = CHR(34) & Peek('create_groups_enabled'    ,$(vCreateGroupRowId),'XLS_GroupList') & CHR(34);
+
+                //  create json BODY
+
+                    set vUpdateGroupBody = '{"name":$(vGroup_name),"description":$(vGroup_description),"enabled":$(vGroup_enabled)}';
+                    Trace $(vCreateGroupBody);
+                    let vUpdateGroupBody = replace(vUpdateGroupBody,'"', chr(34)&chr(34));
+
+                //  trigger request 
+
+                    POST_Table:
+                    SQL SELECT
+                        "__KEY_data"
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vURL_Group)", BODY "$(vUpdateGroupBody)",
+                        HTTPHEADER "Origin" "$(vQlikSenseServer)", 
+                        HTTPHEADER "Content-Type" "application/json",
+                        HTTPHEADER "cookie" "$(vCookie)")
+                    ;
+                    
+                    DROP TABLE POST_Table;
+                
+                NEXT
+
+                
+                Drop Tables 
+                    XLS_Groups,
+                    groups_items,
+                    XLS_GroupList
+                ;
+
+        ENDSUB        
+
+//      UPDATE GROUPS FROM XLS
+        
+        SUB NP_UpdateGroups
+                    //  Get existing groups
+            Call NP_GetGroups
+            //  Get groups from XLS
+            Call XLS_GetGroups
+
+            //  Check if group exists
+
+            XLS_GroupList:
+            Load
+                RowNo()-1               as update_group_RowId,
+                XLS_groups_name         as update_groups_name,
+                XLS_groups_descripton   as update_groups_descripton
+            Resident
+                XLS_Groups
+            Where
+                Exists(groups_name,XLS_groups_name)
+            ;            
+
+            //  Bring in GroupID (required for dynamic URL pass)
+
+            Inner Join (XLS_GroupList)
+            Load
+                groups_id               as update_group_id, 
+                groups_name             as update_groups_name
+            Resident
+                groups_items
+            ;
+
+            // Loop and create groups
+
+                FOR Each  vUpdateGroupRowId in FieldValueList('update_group_RowId'); 
+
+                    TRACE *** UPDATING GROUPS ***;
+                //  create user
+
+                    LIB CONNECT TO '$(vConnection_POST)';
+
+                //  setup user attributes
+
+                    Let vUpdateGroup_id           = Peek('update_group_id'       ,$(vUpdateGroupRowId),'XLS_GroupList') ;
+                    Let vUpdateGroup_name         = CHR(34) & Peek('update_groups_name'       ,$(vUpdateGroupRowId),'XLS_GroupList') & CHR(34);
+                    Let vUpdateGroup_description  = CHR(34) & Peek('update_groups_descripton' ,$(vUpdateGroupRowId),'XLS_GroupList') & CHR(34);
+
+                //  create json BODY
+
+                    set vCreateGroupBody = '{"name":$(vUpdateGroup_name),"description":$(vUpdateGroup_description),"enabled":$(vGroup_enabled)}';
+                    Trace $(vCreateGroupBody);
+                    let vCreateGroupBody = replace(vCreateGroupBody,'"', chr(34)&chr(34));
+                //  create URL lonk
+
+                    Let vURL_UpdateGroup = 'https://$(vNPrintingServer):4993/api/v1/groups/'&'$(vUpdateGroup_id)'; 
+
+                //  trigger request 
+
+                    POST_Table:
+                    SQL SELECT
+                        "__KEY_data"
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vURL_UpdateGroup)", BODY "$(vCreateGroupBody)",
+                        HTTPHEADER "Origin" "$(vQlikSenseServer)",
+                        HTTPHEADER "X-HTTP-Method-Override" "PUT", 
+                        HTTPHEADER "Content-Type" "application/json",
+                        HTTPHEADER "cookie" "$(vCookie)")
+                    ;
+                    
+                    DROP TABLE POST_Table;
+                
+                NEXT
+
+                Drop Tables 
+                    XLS_Groups,
+                    groups_items,
+                    XLS_GroupList
+                ;
+
+        ENDSUB 
+
+//      DELETE GROUPS FROM XLS
+        
+        SUB NP_DeleteGroups
+                    //  Get existing groups
+            Call NP_GetGroups
+            //  Get groups from XLS
+            Call XLS_GetGroups
+
+            //  Check if group exists
+
+            XLS_GroupList:
+            Load
+                groups_id               as delete_group_id, 
+                groups_name             as delete_groups_name
+            Resident
+                groups_items
+            Where
+                NOT Exists(XLS_groups_name,groups_name)
+            ;
+
+            // Loop and delete groups
+
+                FOR Each  vDeleteGroupId in FieldValueList('delete_group_id'); 
+
+                    TRACE *** DELETING GROUPS ***;
+
+                    Let vDeleteGroupURL      = 'https://$(vNPrintingServer):4993/api/v1/groups/'&'$(vDeleteGroupId)';                         
+                    Trace Deleting group: $(vDeleteGroupId);
+                    
+                    LIB CONNECT TO '$(vConnection_POST)';
+                    
+                    RestDeleteUserTable:
+                    SQL SELECT
+                        "__KEY_data"
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vDeleteGroupURL)",
+                        HTTPHEADER "Content-Type" "application/json",  
+                        HTTPHEADER "X-HTTP-Method-Override" "DELETE",                    
+                        HTTPHEADER "cookie" "$(vCookie)")
+                    ;
+
+                    Drop Tables RestDeleteUserTable;
+
+                NEXT
+
+                Drop Tables
+                        groups_items,
+                        XLS_Groups, 
+                        XLS_GroupList
+                ;
+
+        ENDSUB 
+
+//	ROLES
+//      GET Roles
+
+        SUB NP_GetRoles
+
+            LIB CONNECT TO '$(vConnection_GET)';
+
+            RestRolesMasterTable:
+            SQL SELECT
+            "__KEY_data",
+            (SELECT
+                "id",
+                "name",
+                "description",
+                "enabled",
+                "hasAllApps",
+                "isSystemRole",
+                "hasAllActions",
+                "__FK_items"
+                FROM 
+                    "items" FK "__FK_items")
+            FROM 
+                JSON (wrap off) "data" PK "__KEY_data"
+            WITH 
+                CONNECTION( URL "$(vURL_Role)", HTTPHEADER "cookie" "$(vCookie)" )
+            ;
+
+            [roles_items]:
+            LOAD 
+                id                      AS roles_id, 
+                name                    AS roles_name,
+                description             AS roles_descripton,    
+                enabled                 AS roles_enabled,        
+                hasAllApps              AS roles_hasAllApps,
+                isSystemRole            AS roles_isSystemRole,
+                hasAllActions           as roles_hasAllActions
+            RESIDENT 
+                RestRolesMasterTable
+            WHERE 
+                NOT IsNull([__FK_items])
+            ;
+            
+            DROP TABLE RestRolesMasterTable;
+
+        ENDSUB
+
+
+//	APPS
+//      GET APPS                - This procedure returns AppId's based on their name(s)             (Required parameter - App Name)
+
+            SUB NP_GetAppID(vNPrintingAppName)
+
+            //  Get Connection
+
+                    LIB CONNECT TO '$(vConnection_GET)';
+
+            //  Get Apps
+
+                    RestAppsMasterTable:
+                    SQL SELECT
+                        "__KEY_data",
+                        (SELECT
+                            "id",
+                            "name",
+                            "__FK_items"
+                        FROM 
+                            "items" FK "__FK_items")
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vURL_Apps)", HTTPHEADER "cookie" "$(vCookie)" )
+                    ;
+
+                    apps_items:
+                    LOAD 
+                        id 		    as apps_appId,
+                        name 		as apps_appName
+                    RESIDENT 
+                        RestAppsMasterTable
+                    WHERE 
+                        NOT IsNull([__FK_items]) 
+                        AND SubStringCount([name], '$(vNPrintingAppName)') <> 0
+                    ;
+
+                    DROP TABLE RestAppsMasterTable;
+
+            //	Extracts the appId of the desired NP App    
+                    
+                    Let vAppId = Peek('apps_appId',0,'apps_items');
+
+                    If '$(vAppId)' = '' THEN
+                        Trace No App Id found matching App Name: $(vNPrintingAppName);
+                        Trace Exiting Script;
+                        Exit script;            
+                    EndIf
+                    
+            //	Trace    
+
+                    Trace 	---;
+                    Trace 	Derived AppId for App: "$(vNPrintingAppName)" is "$(vAppId)";
+                    
+            ENDSUB
+
+//	CONNECTIONS
+//	    GET CONNECTIONS         - This procedure returns Connection Id's based on their name(s)     (Parameters: Connection Name, AppId)
+
+            SUB NP_GetConnections(vNPrintingConnectionName)
+
+                //  Get Connection
+
+                    LIB CONNECT TO '$(vConnection_GET)';
+
+                //  GET ONE, FEW or ALL Connections
+                    
+                    Let vNPrintingConnectionOneOrAll        =   If('$(vNPrintingConnectionName)'='','ALL','$(vNPrintingConnectionName)');
+                    
+                    If '$(vNPrintingConnectionOneOrAll)'    =   'ALL'
+                        Let vNPrintingConnectionName        =   '*';
+                    Else
+                        ConnectionListTbl:
+                        Load
+                            SubField('$(vNPrintingConnectionName)',',') as ConnectionListTbl
+                        Autogenerate
+                            (1)
+                        ;    
+                    EndIf
+
+                    Trace Running "$(vNPrintingConnectionOneOrAll)" Connection(s);
+
+                //  Get Connections
+
+                    RestConnectionMasterTable:
+                    SQL SELECT
+                        "__KEY_data",
+                        (SELECT
+                            "id",
+                            "name",
+                            "appId",
+                            "__FK_items"
+                        FROM 
+                            "items" FK "__FK_items")
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vURL_Connections)", HTTPHEADER "cookie" "$(vCookie)" )
+                    ;
+
+                    connection_items:
+                    LOAD 
+                        RowNo()         as connection_row_no,
+                        id 			    as connection_id,
+                        name 			as connection_name,
+                        appId 		    as connection_appId
+                    RESIDENT 
+                        RestConnectionMasterTable
+                    WHERE 
+                        NOT IsNull(__FK_items) 
+                        AND appId = '$(vAppId)'
+                        and (Exists(ConnectionListTbl,name) or name like '$(vNPrintingConnectionName)')
+                    ;            
+                    
+                    DROP TABLE RestConnectionMasterTable;
+
+            ENDSUB
+
+//      RELOAD METADATA         - This procedure reloads each connection returned from GET Connection           
+
+            SUB NP_ConnectionReload(vNPrintingConnectionName,vNP_ReloadDuration)
+
+                //  Get Connections
+                Call NP_GetConnections('$(vNPrintingConnectionName)')
+
+                    FOR Each  vRowNo in FieldValueList('connection_row_no');  
+
+                        //	Extracts the desired Connection ID
+                
+                        Let vConnectionId               = Peek('connection_id',$(vRowNo)-1,'connection_items');
+                        Let vNPrintingConnectionName    = Peek('connection_name',$(vRowNo)-1,'connection_items');
+                        //	Trace            
+                        Trace 	---;
+                        Trace 	Derived ConnectionId for Connection $(vNPrintingConnectionName) is $(vConnectionId);
+
+                        //  Compose the URL for the POST call that triggers a reload metadata
+
+                        Let vReloadMetadataURL      = 'https://$(vNPrintingServer):4993/api/v1/connections/$(vConnectionId)/reload';
+                        Trace Reload Metadata URL: ;
+                        Trace "$(vReloadMetadataURL)";
+
+                        //  Compose the URL for the GET call that checks the connection status
+
+                        Let vConnectionStatusURL    = 'https://$(vNPrintingServer):4993/api/v1/connections/$(vConnectionId)';
+                        Trace Connection Status URL: ;
+                        Trace "$(vConnectionStatusURL)" ;
+
+                        //  USE POST Connection
+                    
+                            LIB CONNECT TO '$(vConnection_POST)';  
+
+                            RestNPReloadMetadataTable:
+                            SQL SELECT
+                                "__KEY_data"
+                            FROM 
+                                JSON (wrap off) "data" PK "__KEY_data"
+                            WITH 
+                                CONNECTION( URL "$(vReloadMetadataURL)", HTTPHEADER "cookie" "$(vCookie)")
+                            ;    
+                                                
+                            DROP TABLE RestNPReloadMetadataTable;
+                
+                            Let vNow    =   num(Now());
+                            Let vNowFmt =   Time($(vNow));
+                            Trace Starting Metadata Reload at $(vNowFmt);
+
+                        //  Check Metadata reload status
+                    
+                                LIB CONNECT TO '$(vConnection_GET)';
+                    
+                        //  Reset Connection Status
+                        
+                                Let vConnectionStatus = '';
+
+                        //  Loop until 
+                        //      * Status "Generated" 
+                        //      * Exit if status "Failed"
+                        //      * Exit if status "Enqueued","Generating" for longer than X Minutes  
+                            IF '$(vNP_ReloadDuration)'='' THEN
+                                Let vNP_ReloadDuration      =   30;
+                            ENDIF    
+                            Let vNP_ReloadDuration      =   $(vNP_ReloadDuration)/1440;               //  This gives interval in minutes
+                            Let vNP_ReloadDurationFmt   =   Interval($(vNP_ReloadDuration),'mm:ss');
+                            Trace Metadata reload will be stopped after $(vNP_ReloadDurationFmt) minutes;
+
+                            DO while (vConnectionStatus <> 'Generated')
+                            
+                                Trace   ---;
+                                Trace   Metadata Reload for Connection "$(vNPrintingConnectionName)" "$(vConnectionId)";
+                                Trace   ---;
+                                Trace   Metadata reload status: "$(vConnectionStatus)";
+                                Sleep 2000;
+                                
+                                RestConnectionStatusTable:
+                                SQL SELECT
+                                    "cacheStatus"
+                                FROM 
+                                    JSON (wrap off) "data"
+                                WITH 
+                                    CONNECTION( URL "$(vConnectionStatusURL)", HTTPHEADER "cookie" "$(vCookie)")
+                                ;
+                
+                                [connection_data]:
+                                LOAD 
+                                    [cacheStatus] AS [connection_cacheStatus]
+                                RESIDENT 
+                                    RestConnectionStatusTable
+                                ;
+                
+                                Let vConnectionStatus = Peek('connection_cacheStatus',0,'connection_data');
+                
+                                DROP TABLE RestConnectionStatusTable;
+                                DROP TABLE [connection_data];
+
+                                //  SAFETY PLUG - If reload goes for too long EXIT and ABORT  
+
+                                Let vMetadataReloadTime     =   num(Now()) - $(vNow);
+                                Let vMetadataReloadTimeFmt  =   Interval($(vMetadataReloadTime),'mm:ss');
+                                Trace Reloading Metadata for $(vMetadataReloadTimeFmt);
+
+                                IF $(vMetadataReloadTime) > $(vNP_ReloadDuration) THEN
+                                    Trace   ***;
+                                    Trace   ****    ****    ****    ****    ****;
+                                    Trace   *** Aborting Metadata Reload    ***;
+                                    Trace   *** Subsequent tasks aborted    *** ;
+                                    Trace   ****    ****    ****    ****    ****;
+                                    Call NP_ConnectionReloadAbort('$(vConnectionId)')
+                                    Trace   ****    ****    ****    ****    ****;
+                                    Trace   Aborted!!!;
+                                    Trace   ****    ****    ****    ****    ****;
+                                    Exit Script;
+                                ENDIF
+
+                            Loop
+                            
+                            Trace   ---;
+                            Trace   Metadata reload status: "$(vConnectionStatus)";
+                    
+                    Next
+
+            ENDSUB
+
+//      ABORT RELOAD METADATA   - This procedure stops metadata reload for chosen connection Id
+
+            SUB NP_ConnectionReloadAbort(vConnectionId)
+
+                LIB CONNECT TO '$(vConnection_POST)';  
+
+                //Trace   Aborting Metadata Reload for connection '$(vConnectionId)';
+                Set vAbortTaskBody       =   '{"Status":"aborted"}';
+                Let vAbortTaskBody       =   Replace(vAbortTaskBody,'"', chr(34)&chr(34)); 
+                Trace Abort Task Body: "$(vAbortTaskBody)";
+                
+                RestNPReloadMetadataTableAbort:
+                SQL SELECT
+                    "__KEY_data"
+                FROM 
+                    JSON (wrap off) "data" PK "__KEY_data"
+                WITH 
+                    CONNECTION( URL "$(vReloadMetadataURL)", BODY "$(vAbortTaskBody)",
+                    HTTPHEADER "Content-Type" "application/json",  
+                    HTTPHEADER "X-HTTP-Method-Override" "PATCH",                    
+                    HTTPHEADER "cookie" "$(vCookie)")                
+                ; 
+
+                Drop Table RestNPReloadMetadataTableAbort;
+
+            ENDSUB
+
+//  TASKS  
+//      GET TASKS FROM APP      - This procedure returns all TASK Id's from chosen AppId            (Required parameter - App Name)
+
+        SUB NP_GetTasks(vNPrintingTaskName)
+
+            //  Run All Tasks from App or Run Selected Task  (If vNPrintingTaskName ='' run all)
+
+                Let vNPrintingTaskOneOrAll              =   If('$(vNPrintingTaskName)'='','ALL','$(vNPrintingTaskName)');
+                
+                If '$(vNPrintingTaskOneOrAll)'          =   'ALL'
+                    Set vNPrintingTaskName              =   '*';
+                Else
+                    TaskListTbl:
+                    Load
+                        SubField('$(vNPrintingTaskName)',',') as TaskListTbl
+                    Autogenerate
+                        (1)
+                    ;    
+                EndIf
+
+                Trace Running "$(vNPrintingTaskOneOrAll)" Task(s);
+
+            //  Get List of all tasks
+
+                    LIB CONNECT TO '$(vConnection_GET)';  
+
+                    RestNPTasksMasterTable:
+                    SQL SELECT
+                        "__KEY_data",
+                        (SELECT
+                            "id",
+                            "name",
+                            "appId",
+                            "enabled",
+                            "__FK_items"
+                        FROM 
+                            "items" FK "__FK_items")
+                    FROM 
+                        JSON (wrap off) "data" PK "__KEY_data"
+                    WITH 
+                        CONNECTION( URL "$(vURL_Tasks)", HTTPHEADER "cookie" "$(vCookie)" )
+                    ;
+
+            //  Filter out tasks based on AppId
+
+                    task_items:
+                    LOAD
+                        id        AS tasks_taskId,
+                        name      AS tasks_taskName,
+                        appId     AS tasks_appId,
+                        enabled   AS tasks_enabled
+                    RESIDENT 
+                        RestNPTasksMasterTable
+                    WHERE
+                        NOT IsNull(__FK_items) 
+                        and appId like '$(vAppId)'
+                        and (Exists(TaskListTbl,name) or name like '$(vNPrintingTaskName)')
+                    ;
+                    
+                    DROP TABLE RestNPTasksMasterTable;
+
+            //  If no tasks present - skip task execution
+
+                    tempCountTasks:
+                    NoConcatenate
+                    Load
+                        Count(tasks_taskId) as TaskCount
+                    Resident 
+                        task_items
+                    ;
+
+                    Let vTaskCount = Alt(FieldValue('TaskCount',1),0);
+                    Drop Table tempCountTasks;
+
+        ENDSUB
+
+//	    POST TASKS FROM APP     - This procedure triggers reload of all TASKS from chosen AppId 
+	
+        SUB NP_TriggerTasks
+
+            If '$(vTaskCount)' = 0 then
+                Set vExecuteTasks = 'NO';
+                Trace No tasks to Trigger;
+            ELSE
+
+        //	Loop through task list and execute tasks
+
+                FOR vTask = 1 to vTaskCount
+
+                    LIB CONNECT TO '$(vConnection_POST)';
+
+                    Let vTaskId 		= Peek('tasks_taskId',$(vTask)-1,'task_items');
+                    Let vTaskName 		= Peek('tasks_taskName',$(vTask)-1,'task_items');
+                    Let vTaskEnabled 	= Peek('tasks_enabled',$(vTask)-1,'task_items');
+
+                    IF '$(vTaskEnabled)' = 'True' then
+
+                        Trace 	Trigerring Task:;
+                        Trace       "$(vTaskName)";
+                        Trace       "$(vTaskId)" ;
+                        
+                        Let vPublshTaskURL = 'https://$(vNPrintingServer):4993/api/v1/tasks/'&'$(vTaskId)'&'/executions';
+
+                        RestNPTaskTriggerTable:
+                        SQL SELECT
+                        "__KEY_data"
+                        FROM 
+                            JSON (wrap off) "data" PK "__KEY_data"
+                        WITH 
+                            CONNECTION( URL "$(vPublshTaskURL)", HTTPHEADER "cookie" "$(vCookie)")
+                        ;
+
+                        [_post_items]:
+                        LOAD 
+                            [__KEY_data] AS [__KEY_data]
+                        RESIDENT 
+                            RestNPTaskTriggerTable
+                        WHERE 
+                            NOT IsNull([__KEY_data])
+                        ;
+
+                        DROP TABLE RestNPTaskTriggerTable;
+                    
+                        Trace Task Triggered;
+                    ELSE
+                        Trace No ENABLED task available;
+                    ENDIF;
+
+                    //  Call Get Executions
+                    Call NP_GetExecutions('$(vTaskId)')
+                    //  Call Get Executions Details
+                    Call NP_GetExecutionDetails('$(vTaskId)')
+                                        
+                NEXT vTask; 
+
+                Trace   ;
+                TRACE   ;
+                Trace   Finished Running ALL Tasks;
+
+            ENDIF    
+
+        ENDSUB
+
+//  EXECUTIONS
+//	    GET EXECUTIONS 
+
+        SUB NP_GetExecutions(vTaskId)
+
+            //	Compose the URL for the execution endpoint 
+
+                Let vExecutionsURL = 'https://$(vNPrintingServer):4993/api/v1/tasks/'&'$(vTaskId)'&'/executions';
+
+            //	Connect
+
+                LIB CONNECT TO '$(vConnection_GET)';
+
+            //	Get all executions of task
+
+                RestNPTasksExecutionTable:
+                SQL SELECT
+                    "__KEY_data",
+                    (SELECT
+                        "id",
+                        "task",
+                        "result",
+                        "lastUpdate",
+                        "__FK_items"
+                    FROM 
+                        "items" FK "__FK_items")
+                FROM 
+                    JSON (wrap off) "data" PK "__KEY_data"
+                WITH 
+                    CONNECTION( URL "$(vExecutionsURL)", HTTPHEADER "cookie" "$(vCookie)" )
+                ;
+
+            //	Selecting	
+
+                task_executions:
+                LOAD
+                    id 			    AS execution_Id,
+                    task		 	AS tasks_Id,
+                    result 		    AS result,
+                    lastUpdate	    AS lastUpdate
+                RESIDENT 
+                    RestNPTasksExecutionTable
+                WHERE
+                    NOT IsNull(__FK_items) 
+                ;
+        
+                DROP TABLE RestNPTasksExecutionTable;
+
+        ENDSUB    
+
+//	    GET LAST EXECUTION
+
+        SUB NP_GetExecutionDetails(vTaskId)
+
+            Trace	Getting Publish Task Progress;
+
+        //	Get The latest execution (assuming that it is the latest in the queue for this task
+
+            zLastExecution = Peek('execution_Id',0,'task_executions');
+
+        //	Compose URL 
+
+            Let vExecutionURL = 'https://$(vNPrintingServer):4993/api/v1/tasks/'&'$(vTaskId)'&'/executions/'&'$(zLastExecution)';
+            Trace Execution of $(vTaskName) Task: $(zLastExecution);
+    
+            Drop Table task_executions;
+
+        //	Loop as long as task is running
+
+            Let vExecutionStatus = 'Running';
+    
+            DO while (vExecutionStatus = 'Running')
+
+            //	Get a status of that executions 
+
+                LIB CONNECT TO '$(vConnection_GET)';
+
+                RestNPExecutionsTable:
+                SQL SELECT
+                    "id",
+                    "result",
+                    "progress",
+                    "status",
+                    "completed"
+                FROM 
+                    JSON (wrap off) "data"
+                WITH 
+                    CONNECTION( URL "$(vExecutionURL)", HTTPHEADER "cookie" "$(vCookie)" )
+                ;
+
+                executions:
+                LOAD
+                    id				as execution_id,
+                    result 			as execution_result,
+                    progress		as execution_progress,
+                    status 			as execution_status,
+                    completed 		as execution_completed
+                RESIDENT 
+                    RestNPExecutionsTable
+                WHERE
+                    id='$(zLastExecution)'
+                ;
+
+                DROP TABLE RestNPExecutionsTable;
+
+                vExecutionResult 		= Peek('execution_result',0,'executions');
+                vExecutionProgress		= Peek('execution_progress',0,'executions');
+                vExecutionStatus 		= Peek('execution_status',0,'executions');
+                vExecutionCompleted 	= Peek('execution_completed',0,'executions');
+                
+                Trace Execution Result: $(vExecutionResult) |  Execution Progress: $(vExecutionProgress) | Execution Status: $(vExecutionStatus) | Execution Completed?: $(vExecutionCompleted);
+                Drop Table executions;
+
+                IF '$(vExecutionStatus)' = 'Enqueued' OR '$(vExecutionStatus)' = 'Assigned' THEN
+                    Let vExecutionStatus = 'Running';
+                    TRACE Execution Enqueued - Changed status to Running;
+                ENDIF
+
+                IF '$(vExecutionStatus)' = 'Completed' THEN
+                    Trace   ;
+                    TRACE   ;
+                    Trace   Execution Execution of $(vTaskName) Finished successfuly;
+                ENDIF
+
+            Loop 
+
+        ENDSUB            
+
+//  FILTERS
+//      GET FILTERS (ALL)
+
+        SUB NP_GetFilters
+                
+                LIB CONNECT TO '$(vConnection_GET)';
+
+                //  Get Filters
+
+                RestConnectionFiltersTable:
+                SQL SELECT
+                    "__KEY_data",
+                    (SELECT
+                        "id",
+                        "name",
+                        "appId",
+                        "__PK_items",
+                        "__FK_items",
+                        (SELECT
+                            "overrideValues",
+                            "connectionId",
+                            "name" as "Fieldname", 
+                            "__PK_fields",
+                            "__FK_fields"
+                            ,(SELECT
+                                "type",
+                                "value",
+                                "__PK_values",
+                                "__FK_values"
+                        FROM 
+                            "values" PK "__PK_values" FK "__FK_values")
+                        FROM 
+                            "fields" PK "__PK_fields" FK "__FK_fields")
+                    FROM 
+                        "items" PK "__PK_items" FK "__FK_items")
+                FROM 
+                    JSON (wrap off) "data" PK "__KEY_data"
+                WITH 
+                    CONNECTION( URL "$(vURL_Filters)", HTTPHEADER "cookie" "$(vCookie)" )
+                ;
+                
+                filters_items:
+                Load
+                    "__PK_items" 	    as _Key,
+                    "id"                as  filters_id,
+                    "name"              as  filters_name,
+                    "appId"             as  filters_app_id                
+                Resident
+                    RestConnectionFiltersTable
+                Where 
+                    NOT IsNull(__PK_items)
+                ;
+                
+                Left Join(filters_items)
+                Load
+                    "__FK_fields"       as _Key,
+                    overrideValues      as filters_overrideValues,
+                    connectionId        as filters_connectionId,
+                    Fieldname           as filters_FieldValue
+                Resident
+                    RestConnectionFiltersTable
+                Where 
+                    NOT IsNull(__FK_fields) 
+                ;
+                
+                Left Join(filters_items)
+                Load
+                    "__FK_values"       as _Key,
+                    type                as filters_type,
+                    value               as filters_Value            
+                Resident
+                    RestConnectionFiltersTable
+                Where 
+                    NOT IsNull(__FK_values) 
+                ;
+                
+                Drop Table RestConnectionFiltersTable;
+                
+        ENDSUB
+//  SCRIPT SCHEDULER
+
+        SUB NP_DailySchedule(vScheduledDays)            
+            
+            Let vRunTaskToday = Floor(ReloadTime());
+
+            IF  $(vRunTaskToday) = Floor(Today()) THEN
+
+                Trace Task was already run today!!!;
+                Exit Script;
+
+            EndIf     
+
+            //  get vDays variable
+            Let vScheduledDays = '$(vScheduledDays)';
+            Trace '$(vScheduledDays)';
+
+            //  get Today day number
+            Let vScheduledToday = Floor(WeekDay(Today()));
+            Trace Today day number is: $(vScheduledToday);
+            
+            IF SubStringCount('$(vScheduledDays)',$(vScheduledToday)) > 0 THEN
+                
+                Trace Running report for day $(vScheduledToday);
+
+            ELSE
+
+                Trace Report will not run on this day!!!;
+                Exit Script;      
+
+            EndIf      
+
+        ENDSUB
+//
+//	END TASKS
+//
+//  ------------------------------------------------------------------------------------------------------------------------------------------------
+//                              JOB SETS - Samples
+//  ------------------------------------------------------------------------------------------------------------------------------------------------
+//
+//  Publish 1 Task from Application                                 parameters: [AppName, TaskName]
+
+        SUB NP_JOB_PublishTask(vNPrintingAppName,vNPrintingTaskName)
+            
+            //  Authenticate
+                Call NP_Authenticate;
+                Drop Table cookie_items;
+            //  Get App
+            
+                Call NP_GetAppID('$(vNPrintingAppName)')
+                Drop Table apps_items;
+            //  Get Task 
+                Call NP_GetTasks('$(vNPrintingTaskName)')
+            //  Trigger Tasks
+                Call NP_TriggerTasks
+                
+                Drop tables 
+                    task_items,
+                    _post_items
+                ;  
+
+        ENDSUB
+
+//  Publish All Tasks from Application                              parameters: [AppName]
+        
+        SUB NP_JOB_PublishAllTasks(vNPrintingAppName)
+            
+            //  Authenticate
+                Call NP_Authenticate;
+                Drop Table cookie_items;
+            //  Get App
+                Call NP_GetAppID('$(vNPrintingAppName)')
+                Drop Table apps_items;
+            //  Get Task 
+                Call NP_GetTasks('$(vNPrintingTaskName)')
+            //  Trigger Tasks
+                Call NP_TriggerTasks
+
+                Drop tables 
+                    task_items,
+                    _post_items
+                ;  
+
+        ENDSUB
+
+//  Reload Metadata & Publish 1 Task from Application               parameters: [AppName, TaskName, ConnectionName(optional), ReloadTimeout(optional)]
+        
+        SUB NP_JOB_Reload_N_PublishTask(vNPrintingAppName,vNPrintingTaskName,vNPrintingConnectionName,vNP_ReloadDuration)
+            
+            //  Authenticate
+                Call NP_Authenticate;
+                Drop Table cookie_items;
+            //  Get App
+                Call NP_GetAppID('$(vNPrintingAppName)')
+                Drop Table apps_items;
+            //  Get and Reload Connections
+                Call NP_ConnectionReload('$(vNPrintingConnectionName)','$(vNP_ReloadDuration)')
+            //  Get Task 
+                Call NP_GetTasks('$(vNPrintingTaskName)')
+            //  Trigger Tasks
+                Call NP_TriggerTasks
+                
+                Drop tables 
+                    task_items,
+                    connection_items,
+                    _post_items
+                ;  
+
+        ENDSUB
+//  
+//  END JOBS
