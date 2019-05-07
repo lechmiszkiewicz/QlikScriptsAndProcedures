@@ -1573,7 +1573,8 @@
                 Drop Table RestConnectionFiltersTable;
                 
         ENDSUB
-//  SCRIPT SCHEDULER
+
+//  SCRIPT SCHEDULER - This is still " Work in Progress" and was put together as it was quickly required
 
         SUB NP_DailySchedule(vScheduledDays)            
             
